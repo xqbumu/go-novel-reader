@@ -67,19 +67,20 @@ func main() {
 	// --- Command Line Argument Parsing ---
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <command> [arguments]\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Manages and reads novels using TTS.\n\n")
+		fmt.Fprintf(os.Stderr, "Manages and reads novels using macOS TTS.\n\n") // Clarified TTS source
 		fmt.Fprintf(os.Stderr, "Commands:\n")
-		fmt.Fprintf(os.Stderr, "  add <filepath>      Add a new novel to the library and parse chapters.\n")
-		fmt.Fprintf(os.Stderr, "  list                List all novels in the library with their index.\n")
-		fmt.Fprintf(os.Stderr, "  remove <index>      Remove the novel at the specified index (from 'list') from the library.\n")
-		fmt.Fprintf(os.Stderr, "  switch <index>      Set the novel at the specified index (from 'list') as the active one.\n")
+		fmt.Fprintf(os.Stderr, "  add <filepath>      Add a new novel, parse chapters, and set as active.\n")                  // Slightly rephrased
+		fmt.Fprintf(os.Stderr, "  list                List novels in the library with index and last read chapter/segment.\n") // Updated description
+		fmt.Fprintf(os.Stderr, "  remove <index>      Remove the novel at the specified index (from 'list').\n")               // Slightly rephrased
+		fmt.Fprintf(os.Stderr, "  switch <index>      Set the novel at the specified index (from 'list') as active.\n")        // Slightly rephrased
 		fmt.Fprintf(os.Stderr, "  chapters            List chapters of the active novel.\n")
-		fmt.Fprintf(os.Stderr, "  read [chap_index]   Read chapter of active novel (1-based index). Reads last known chapter/segment if index omitted.\n")
+		fmt.Fprintf(os.Stderr, "  read [chap_index]   Read active novel segment by segment. Starts from specified chapter (1-based index)\n") // Updated description
+		fmt.Fprintf(os.Stderr, "                      or continues from the last read chapter/segment if index is omitted.\n")                // Added continuation detail
 		fmt.Fprintf(os.Stderr, "  next                Read the next chapter of the active novel (starts from segment 0).\n")
 		fmt.Fprintf(os.Stderr, "  prev                Read the previous chapter of the active novel (starts from segment 0).\n")
-		fmt.Fprintf(os.Stderr, "  where               Show the active novel and last read chapter/segment index.\n")
+		fmt.Fprintf(os.Stderr, "  where               Show the active novel and the last read chapter/segment index.\n") // Updated description
 		fmt.Fprintf(os.Stderr, "  config [setting]    View or toggle configuration settings.\n")
-		fmt.Fprintf(os.Stderr, "                      Available settings: auto_next\n")
+		fmt.Fprintf(os.Stderr, "                      Available settings: auto_next (toggle auto-read next segment/chapter)\n") // Clarified auto_next
 		fmt.Fprintf(os.Stderr, "\n")
 	}
 
