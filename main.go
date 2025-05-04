@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal" // Import signal package
 	"path/filepath"
 	"regexp"
 	"sort" // Import sort package
 	"strconv"
 	"strings" // Import strings for splitting
+	"syscall" // Import syscall for SIGTERM
 
 	"github.com/xqbumu/go-say/config"
 	"github.com/xqbumu/go-say/novel"
@@ -24,11 +26,10 @@ var (
 )
 
 // Map regex names back to actual regex objects (used after loading config)
-// We reference the exported map from the novel package now.
 var regexMap = map[string]*regexp.Regexp{
-	"chinese":  novel.ChapterRegexes["chinese"],  // Use exported novel.ChapterRegexes
-	"english":  novel.ChapterRegexes["english"],  // Use exported novel.ChapterRegexes
-	"markdown": novel.ChapterRegexes["markdown"], // Use exported novel.ChapterRegexes
+	"chinese":  novel.ChapterRegexes["chinese"],
+	"english":  novel.ChapterRegexes["english"],
+	"markdown": novel.ChapterRegexes["markdown"],
 }
 
 // Define segment separator: one or more newline characters.
@@ -45,17 +46,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error loading config: %v", err)
 	}
-	// Ensure Novels map is initialized
 	if cfg.Novels == nil {
 		cfg.Novels = make(map[string]*config.NovelInfo)
 	}
 
-	// --- Defer Save on Exit ---
-	// This function will run when main() returns (normal exit)
+	// --- Setup Signal Handling ---
+	setupSignalHandler() // Call the new function to handle signals
+
+	// --- Defer Save on Normal Exit ---
 	defer func() {
 		if configDirty {
-			fmt.Println("\nConfiguration changed, saving...")
-			saveConfig() // Call the existing save function
+			fmt.Println("\nConfiguration changed, saving on normal exit...")
+			saveConfig()
 		}
 	}()
 
@@ -67,20 +69,20 @@ func main() {
 	// --- Command Line Argument Parsing ---
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <command> [arguments]\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Manages and reads novels using macOS TTS.\n\n") // Clarified TTS source
+		fmt.Fprintf(os.Stderr, "Manages and reads novels using macOS TTS.\n\n")
 		fmt.Fprintf(os.Stderr, "Commands:\n")
-		fmt.Fprintf(os.Stderr, "  add <filepath>      Add a new novel, parse chapters, and set as active.\n")                  // Slightly rephrased
-		fmt.Fprintf(os.Stderr, "  list                List novels in the library with index and last read chapter/segment.\n") // Updated description
-		fmt.Fprintf(os.Stderr, "  remove <index>      Remove the novel at the specified index (from 'list').\n")               // Slightly rephrased
-		fmt.Fprintf(os.Stderr, "  switch <index>      Set the novel at the specified index (from 'list') as active.\n")        // Slightly rephrased
+		fmt.Fprintf(os.Stderr, "  add <filepath>      Add a new novel, parse chapters, and set as active.\n")
+		fmt.Fprintf(os.Stderr, "  list                List novels in the library with index and last read chapter/segment.\n")
+		fmt.Fprintf(os.Stderr, "  remove <index>      Remove the novel at the specified index (from 'list').\n")
+		fmt.Fprintf(os.Stderr, "  switch <index>      Set the novel at the specified index (from 'list') as active.\n")
 		fmt.Fprintf(os.Stderr, "  chapters            List chapters of the active novel.\n")
-		fmt.Fprintf(os.Stderr, "  read [chap_index]   Read active novel segment by segment. Starts from specified chapter (1-based index)\n") // Updated description
-		fmt.Fprintf(os.Stderr, "                      or continues from the last read chapter/segment if index is omitted.\n")                // Added continuation detail
+		fmt.Fprintf(os.Stderr, "  read [chap_index]   Read active novel segment by segment. Starts from specified chapter (1-based index)\n")
+		fmt.Fprintf(os.Stderr, "                      or continues from the last read chapter/segment if index is omitted.\n")
 		fmt.Fprintf(os.Stderr, "  next                Read the next chapter of the active novel (starts from segment 0).\n")
 		fmt.Fprintf(os.Stderr, "  prev                Read the previous chapter of the active novel (starts from segment 0).\n")
-		fmt.Fprintf(os.Stderr, "  where               Show the active novel and the last read chapter/segment index.\n") // Updated description
+		fmt.Fprintf(os.Stderr, "  where               Show the active novel and the last read chapter/segment index.\n")
 		fmt.Fprintf(os.Stderr, "  config [setting]    View or toggle configuration settings.\n")
-		fmt.Fprintf(os.Stderr, "                      Available settings: auto_next (toggle auto-read next segment/chapter)\n") // Clarified auto_next
+		fmt.Fprintf(os.Stderr, "                      Available settings: auto_next (toggle auto-read next segment/chapter)\n")
 		fmt.Fprintf(os.Stderr, "\n")
 	}
 
@@ -121,6 +123,24 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+}
+
+// setupSignalHandler registers handlers for interrupt signals (Ctrl+C) and termination signals.
+func setupSignalHandler() {
+	sigs := make(chan os.Signal, 1)
+	// Register the channel to receive notifications for SIGINT and SIGTERM
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+
+	// Start a goroutine to handle received signals
+	go func() {
+		sig := <-sigs // Wait for a signal
+		fmt.Printf("\nReceived signal: %s. Exiting...\n", sig)
+		if configDirty {
+			fmt.Println("Configuration changed, saving before exit...")
+			saveConfig() // Save if configuration is dirty
+		}
+		os.Exit(0) // Exit gracefully after handling the signal
+	}()
 }
 
 // --- Command Handler Functions ---
@@ -274,11 +294,17 @@ func handleSwitch(args []string) {
 	filePath := novelToSwitch.FilePath
 
 	if cfg.ActiveNovelPath != filePath { // Only mark dirty if actually switching
+		// Save progress for the *previous* active novel before switching
+		if configDirty {
+			fmt.Println("Saving progress for previous novel before switching...")
+			saveConfig() // Save immediately if dirty
+		}
+
 		cfg.ActiveNovelPath = filePath
 		activeNovel = novelToSwitch
 		loadActiveNovelChapters()
-		configDirty = true // Mark config as dirty
-		// saveConfig() // Removed immediate save
+		configDirty = true // Mark config as dirty because ActiveNovelPath changed
+		saveConfig()       // Save immediately after switching to persist the new active path
 		fmt.Printf("Switched active novel to: %s\n", filePath)
 	} else {
 		fmt.Printf("Novel '%s' is already active.\n", filePath)
@@ -314,20 +340,42 @@ func handleRead(args []string) {
 
 	targetChapterIndex := activeNovel.LastReadChapterIndex
 	startSegmentIndex := activeNovel.LastReadSegmentIndex
+	chapterChanged := false // Flag to track if chapter index changed
 
 	if len(args) > 0 {
 		idx, err := strconv.Atoi(args[0])
 		if err != nil || idx < 1 || idx > len(activeNovel.Chapters) {
 			log.Fatalf("Error: Invalid chapter index '%s'. Please provide a number between 1 and %d.", args[0], len(activeNovel.Chapters))
 		}
-		targetChapterIndex = idx - 1
-		startSegmentIndex = 0 // Start from segment 0 when chapter is specified
+		newChapterIndex := idx - 1
+		if newChapterIndex != targetChapterIndex {
+			targetChapterIndex = newChapterIndex
+			startSegmentIndex = 0 // Start from segment 0 when chapter is specified
+			chapterChanged = true
+		}
 	}
+
+	// --- Immediate Save on Chapter Change ---
+	if chapterChanged {
+		fmt.Printf("Switching to Chapter %d, saving progress...\n", targetChapterIndex+1)
+		activeNovel.LastReadChapterIndex = targetChapterIndex
+		activeNovel.LastReadSegmentIndex = startSegmentIndex // Should be 0 here
+		configDirty = true
+		saveConfig() // Save immediately
+	}
+	// --- End Immediate Save ---
 
 	if targetChapterIndex < 0 || targetChapterIndex >= len(activeNovel.Chapters) {
 		fmt.Printf("No chapter selected or last read chapter index (%d) is invalid. Reading first chapter.\n", activeNovel.LastReadChapterIndex+1)
 		targetChapterIndex = 0
 		startSegmentIndex = 0
+		// If we defaulted to chapter 0, save this change immediately too
+		if activeNovel.LastReadChapterIndex != 0 || activeNovel.LastReadSegmentIndex != 0 {
+			activeNovel.LastReadChapterIndex = 0
+			activeNovel.LastReadSegmentIndex = 0
+			configDirty = true
+			saveConfig()
+		}
 	}
 
 	chapter := activeNovel.Chapters[targetChapterIndex]
@@ -339,9 +387,16 @@ func handleRead(args []string) {
 		return
 	}
 
+	// Adjust startSegmentIndex again just in case it was invalid from config
 	if startSegmentIndex < 0 || startSegmentIndex >= len(segments) {
 		fmt.Printf("Warning: Last read segment index (%d) is invalid for this chapter. Starting from segment 0.\n", startSegmentIndex)
 		startSegmentIndex = 0
+		// Save the corrected segment index immediately if it changed
+		if activeNovel.LastReadSegmentIndex != 0 {
+			activeNovel.LastReadSegmentIndex = 0
+			configDirty = true
+			saveConfig()
+		}
 	}
 
 	for segIdx := startSegmentIndex; segIdx < len(segments); segIdx++ {
@@ -355,40 +410,49 @@ func handleRead(args []string) {
 		doneChan, err := tts.SpeakAsync(segmentText)
 		if err != nil {
 			log.Printf("Error starting TTS for Ch %d, Seg %d: %v", targetChapterIndex+1, segIdx, err)
-			return
+			return // Stop reading on TTS start error
 		}
 
-		// Update progress in memory *before* waiting
+		// Update progress in memory *before* waiting for speech
+		// Only mark dirty, actual save happens on exit/signal/chapter change
 		if activeNovel.LastReadChapterIndex != targetChapterIndex || activeNovel.LastReadSegmentIndex != segIdx {
 			activeNovel.LastReadChapterIndex = targetChapterIndex
 			activeNovel.LastReadSegmentIndex = segIdx
 			configDirty = true // Mark config as dirty only if progress changed
 		}
-		// saveConfig() // Removed immediate save
+		// saveConfig() // Removed immediate save per segment
 
 		fmt.Println("(Speaking...)")
-		err = <-doneChan
+		err = <-doneChan // Block until speaking is done or an error occurs
 
 		if err != nil {
 			log.Printf("Error during TTS for Ch %d, Seg %d: %v", targetChapterIndex+1, segIdx, err)
+			// Don't exit the whole program, just stop reading this chapter
 			return
 		}
 		fmt.Println("(Segment finished)")
 
+		// If auto-next is disabled, stop after this segment
 		if !cfg.AutoReadNext {
 			fmt.Println("Auto-next disabled. Stopping.")
 			return
 		}
 
+		// If it was the last segment of the chapter, break the segment loop
+		// to trigger auto-next chapter logic below
 		if segIdx == len(segments)-1 {
 			break
 		}
+		// Otherwise, the loop continues to the next segment
 	}
 
+	// --- Handle Auto-Next Chapter ---
+	// This code runs if the segment loop completed (all segments read) AND auto-next is enabled
 	if cfg.AutoReadNext {
 		fmt.Println("Chapter finished. Auto-reading next chapter...")
 		nextChapterIndexInternal := targetChapterIndex + 1
 		if nextChapterIndexInternal < len(activeNovel.Chapters) {
+			// Call handleRead for the next chapter. handleRead will handle the immediate save.
 			handleRead([]string{strconv.Itoa(nextChapterIndexInternal + 1)})
 		} else {
 			fmt.Println("Reached the end of the novel.")
@@ -412,6 +476,7 @@ func handleNext() {
 		fmt.Println("Already at the last chapter.")
 		return
 	}
+	// Call handleRead, which will detect the chapter change and save immediately.
 	handleRead([]string{strconv.Itoa(nextChapterIndex + 1)})
 }
 
@@ -431,6 +496,7 @@ func handlePrev() {
 		fmt.Println("Already at the first chapter.")
 		return
 	}
+	// Call handleRead, which will detect the chapter change and save immediately.
 	handleRead([]string{strconv.Itoa(prevChapterIndex + 1)})
 }
 
@@ -475,16 +541,14 @@ func loadActiveNovel() {
 		cfg.ActiveNovelPath = ""
 		activeNovel = nil
 		configDirty = true // Mark config as dirty since ActiveNovelPath changed
-		// saveConfig() // Removed immediate save
+		// saveConfig() // Removed immediate save - rely on signal/defer
 		return
 	}
 	activeNovel = info
 }
 
-// loadActiveNovelChapters ensures the chapter content for the active novel is loaded into memory.
 func loadActiveNovelChapters() {
 	if activeNovel == nil || activeNovel.FilePath == "" {
-		// Don't log error here, might be called before active novel is truly set
 		return
 	}
 	if len(activeNovel.Chapters) > 0 && len(activeNovel.Chapters) == len(activeNovel.ChapterTitles) {
@@ -512,7 +576,6 @@ func loadActiveNovelChapters() {
 	}
 
 	activeNovel.Chapters = parsedChapters
-	// Update titles just in case they changed (though ParseNovel doesn't modify titles)
 	activeNovel.ChapterTitles = make([]string, len(parsedChapters))
 	for i, ch := range parsedChapters {
 		activeNovel.ChapterTitles[i] = ch.Title

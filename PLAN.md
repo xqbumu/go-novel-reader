@@ -74,7 +74,11 @@ go-say/
         }
         ```
     *   Save configuration as a JSON file (e.g., `~/.config/go-say/config.json`). Default `AutoReadNext` to false.
-    *   Load config on startup. Update config in memory as needed. Save config **only once on normal program exit**, and only if changes were made during the session.
+    *   Load config on startup. Update config in memory as needed. Save config automatically:
+        *   On normal program exit (if changes were made).
+        *   On receiving an interrupt signal (Ctrl+C) (if changes were made).
+        *   Immediately when switching chapters (`read <index>`, `next`, `prev`).
+        *   Immediately before and after switching novels (`switch <index>`).
 
 4.  **Main Program Logic (`main.go`):**
     *   Design the CLI commands:
@@ -87,16 +91,17 @@ go-say/
         *   `next`/`prev`: Read the next/previous chapter of the active novel, starting from its first segment.
         *   `where`: Show the active novel and its last read chapter and segment.
         *   `config [setting]`: View or toggle configuration settings (currently `auto_next`).
-    *   Handle user input, manage the active novel state, load chapters as needed, and orchestrate calls to other modules. Implement segment-based reading loop in `read` with asynchronous TTS. Mark configuration as dirty when progress or settings change, but save only once on program exit.
+    *   Handle user input, manage the active novel state, load chapters as needed, and orchestrate calls to other modules. Implement segment-based reading loop in `read` with asynchronous TTS. Mark configuration as dirty when progress or settings change. Implement signal handling for graceful shutdown and saving. Implement immediate saving on chapter/novel switches.
 
-## Development Steps (Completed for v5)
+## Development Steps (Completed for v6)
 
 1.  Initialize Go module.
-2.  Implement configuration structures (`AppConfig`, `NovelInfo`) and load/save logic, including `AutoReadNext` and `LastReadSegmentIndex` settings. Implement deferred saving on exit.
+2.  Implement configuration structures (`AppConfig`, `NovelInfo`) and load/save logic.
 3.  Implement chapter splitter with automatic format detection (`novel/parser.go`).
 4.  Implement asynchronous TTS interface (`tts/speaker.go` with `SpeakAsync`).
-5.  Build CLI interaction logic in `main.go` supporting multi-novel management, segment-level progress tracking, `config` command, and auto-next segment/chapter feature, with optimized config saving.
-6.  Add error handling and user feedback.
+5.  Build CLI interaction logic in `main.go` supporting multi-novel management, segment-level progress tracking, `config` command, and auto-next feature.
+6.  Implement robust configuration saving: on normal exit, on interrupt signal (Ctrl+C), and immediately upon switching chapters or novels.
+7.  Add error handling and user feedback.
 
 ## Information Needed (Resolved)
 
