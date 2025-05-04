@@ -3,6 +3,7 @@ package novel
 import (
 	"bufio"
 	"errors"
+	"fmt" // Ensure fmt is imported
 	"io"
 	"os"
 	"regexp"
@@ -15,11 +16,12 @@ type Chapter struct {
 	Content string
 }
 
-// Regex candidates for chapter detection
-var chapterRegexes = map[string]*regexp.Regexp{
+// ChapterRegexes holds the candidate regular expressions for chapter detection.
+// It is exported so it can be potentially used or referenced by other packages (like main).
+var ChapterRegexes = map[string]*regexp.Regexp{
 	"chinese":  regexp.MustCompile(`^\s*第\s*[一二三四五六七八九十百千万零〇\d]+\s*[章卷节回].*$`),
 	"english":  regexp.MustCompile(`^\s*Chapter\s+\d+.*$`),
-	"markdown": regexp.MustCompile(`^\s*#{1,6}\s+.*$`),
+	"markdown": regexp.MustCompile(`^\s*#{1,6}\s+.*$`), // Matches markdown headers H1-H6
 }
 
 const detectBufferSize = 1 * 1024 * 1024 // 1MB for format detection
@@ -33,45 +35,68 @@ func DetectFormat(filePath string) (*regexp.Regexp, error) {
 	defer file.Close()
 
 	reader := bufio.NewReader(file)
-	buffer := make([]byte, detectBufferSize)
-	n, err := reader.Read(buffer)
-	if err != nil && err != io.EOF {
+	buffer := make([]byte, detectBufferSize) // Read up to 1MB
+	n, err := io.ReadFull(reader, buffer)
+	// io.ReadFull returns io.ErrUnexpectedEOF if less than buffer size is read, which is expected for smaller files.
+	// It returns io.EOF only if 0 bytes were read.
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return nil, err
 	}
 	contentSample := string(buffer[:n])
 
 	scores := make(map[string]int)
-	scanner := bufio.NewScanner(strings.NewReader(contentSample))
-	for scanner.Scan() {
-		line := scanner.Text()
-		for format, re := range chapterRegexes {
-			if re.MatchString(line) {
+	// Use strings.Split is simpler for a fixed buffer than a scanner
+	lines := strings.Split(contentSample, "\n")
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line) // Trim whitespace for matching
+		if trimmedLine == "" {
+			continue
+		}
+		for format, re := range ChapterRegexes { // Use exported variable
+			if re.MatchString(trimmedLine) { // Match against trimmed line
 				scores[format]++
+				// Optional: break inner loop if one format matches? Assumes titles are unique.
+				// break
 			}
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
+	// Scanner error check is not needed when using strings.Split
 
 	bestFormat := ""
-	maxScore := 0
+	// Start with a minimum score threshold to avoid spurious matches on random lines
+	maxScore := 1 // Require at least 2 matches to be considered
 	for format, score := range scores {
-		// Basic heuristic: require at least a few matches to be confident
-		if score > maxScore && score > 1 {
+		if score > maxScore {
 			maxScore = score
 			bestFormat = format
+		} else if score == maxScore && score > 1 {
+			// Handle ties? For now, first one wins or could prioritize (e.g. markdown)
+			// Or maybe require a significantly higher score?
 		}
 	}
 
 	if bestFormat == "" {
-		// Default or fallback if no clear winner - let's default to markdown for now
-		// Alternatively, could return an error asking user to specify
-		// return nil, errors.New("could not reliably detect chapter format")
-		return chapterRegexes["markdown"], nil // Defaulting to Markdown
+		// Default or fallback if no clear winner
+		// Let's prioritize markdown if score is low, otherwise return error?
+		if maxScore <= 1 { // If only 0 or 1 match found for the best format
+			// Check if markdown has at least one match, prefer it as default
+			if scores["markdown"] >= 1 {
+				fmt.Println("Warning: Low confidence in format detection, defaulting to markdown.")
+				return ChapterRegexes["markdown"], nil
+			}
+			// If even markdown doesn't match, return error
+			return nil, errors.New("could not reliably detect chapter format, few or no chapter titles found in sample")
+		}
+		// If a best format was found (score > 1)
+		fmt.Printf("Detected format '%s' with score %d\n", bestFormat, maxScore)
+		return ChapterRegexes[bestFormat], nil
 	}
-
-	return chapterRegexes[bestFormat], nil
+	// This part should not be reachable if the logic above is correct,
+	// but the compiler needs a return path.
+	// If bestFormat is "", it means maxScore <= 1. The logic inside the if block handles this.
+	// If somehow we exit the loop and bestFormat is set, we return it.
+	// This path indicates successful detection.
+	return ChapterRegexes[bestFormat], nil
 }
 
 // ParseNovel reads a novel file and splits it into chapters based on the provided regex.

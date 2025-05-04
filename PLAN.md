@@ -2,9 +2,11 @@
 
 ## Project Goals
 
-1.  **Chapter Splitting:** Automatically identify and split chapters in Markdown or TXT novel files.
+1.  **Chapter Splitting:** Automatically identify and split chapters in Markdown or TXT novel files using format detection.
 2.  **TTS Reading:** Utilize macOS's built-in `say` command to read selected chapters aloud.
-3.  **Progress Saving:** Keep track of the last opened novel and the last read chapter.
+3.  **Multi-Novel Library:** Manage a library of multiple novels.
+4.  **Individual Progress Saving:** Keep track of the last read chapter for each novel in the library.
+5.  **Active Novel:** Maintain the concept of a currently "active" novel for reading commands.
 
 ## Technical Choices
 
@@ -50,35 +52,48 @@ go-say/
     *   Use `exec.Command("say", chapterText).Run()` to invoke system TTS.
     *   Consider handling potential interruption of reading (e.g., user wants to stop).
 
-3.  **Configuration Management (`config/manager.go`, `config/config.go`):**
-    *   Define a struct for configuration:
+3.  **Configuration Management (`config/config.go`):**
+    *   Define structs for configuration:
         ```go
+        // Represents a single novel's metadata and progress
+        type NovelInfo struct {
+            FilePath      string          `json:"file_path"`
+            Chapters      []novel.Chapter `json:"-"` // Loaded in memory, not saved
+            ChapterTitles []string        `json:"chapter_titles"` // Saved for listing
+            LastReadIndex int             `json:"last_read_index"`
+            DetectedRegex string          `json:"detected_regex,omitempty"`
+        }
+
+        // Main application configuration
         type AppConfig struct {
-            LastNovelPath     string `json:"last_novel_path"`
-            LastChapterIndex int    `json:"last_chapter_index"` // Or maybe chapter title/identifier
+            Novels          map[string]*NovelInfo `json:"novels"` // Map FilePath -> NovelInfo
+            ActiveNovelPath string                `json:"active_novel_path"`
         }
         ```
     *   Save configuration as a JSON file (e.g., `~/.config/go-say/config.json`).
-    *   Load config on startup, update and save when switching books or chapters.
+    *   Load config on startup. Save config whenever the library or progress changes.
 
 4.  **Main Program Logic (`main.go`):**
     *   Design the CLI commands:
-        *   `go-say open <filepath>`: Open a new novel.
-        *   `go-say list`: Display chapter list for selection.
-        *   `go-say read [chapter_number]`: Read a specific chapter (or the last read one).
-        *   `go-say next`/`prev`: Read the next/previous chapter.
-        *   `go-say where`: Show current reading progress.
-    *   Handle user input and orchestrate calls to other modules.
+        *   `add <filepath>`: Add a novel to the library, parse chapters, and set as active.
+        *   `list`: List all novels in the library, marking the active one.
+        *   `remove <filepath>`: Remove a novel from the library.
+        *   `switch <filepath>`: Set a novel from the library as active.
+        *   `chapters`: List chapters of the currently active novel.
+        *   `read [index]`: Read a specific chapter (1-based) of the active novel, or continue from the last read position if index is omitted.
+        *   `next`/`prev`: Read the next/previous chapter of the active novel.
+        *   `where`: Show the active novel and its last read chapter.
+    *   Handle user input, manage the active novel state, load chapters as needed, and orchestrate calls to other modules.
 
-## Development Steps
+## Development Steps (Completed for v2)
 
-1.  Initialize the Go module (`go mod init github.com/xqbumu/go-say`).
-2.  Implement configuration reading/writing.
-3.  **Implement the chapter splitter based on the provided chapter format.**
-4.  Implement the TTS interface.
-5.  Build the CLI interaction logic.
+1.  Initialize Go module.
+2.  Implement configuration structures (`AppConfig`, `NovelInfo`) and load/save logic.
+3.  Implement chapter splitter with automatic format detection (`novel/parser.go`).
+4.  Implement TTS interface (`tts/speaker.go`).
+5.  Build CLI interaction logic in `main.go` supporting multi-novel management and individual progress tracking.
 6.  Add error handling and user feedback.
 
-## Information Needed
+## Information Needed (Resolved)
 
-*   **What is the common format for chapter titles in your novels?** (e.g., `第X章 标题`, `Chapter X`, `# Title`) This is needed to implement the chapter splitting correctly.
+*   Common chapter title formats were identified (Chinese, English, Markdown) and automatic detection was implemented.

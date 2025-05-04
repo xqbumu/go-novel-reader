@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
+
+	// "strings" // Removed as unused
 
 	"github.com/xqbumu/go-say/config"
 	"github.com/xqbumu/go-say/novel"
@@ -13,10 +17,18 @@ import (
 )
 
 var (
-	cfg        *config.AppConfig
-	configPath string
-	chapters   []novel.Chapter
+	cfg         *config.AppConfig
+	configPath  string
+	activeNovel *config.NovelInfo // Holds the currently active novel's info and loaded chapters
 )
+
+// Map regex names back to actual regex objects (used after loading config)
+// We reference the exported map from the novel package now.
+var regexMap = map[string]*regexp.Regexp{
+	"chinese":  novel.ChapterRegexes["chinese"],  // Use exported novel.ChapterRegexes
+	"english":  novel.ChapterRegexes["english"],  // Use exported novel.ChapterRegexes
+	"markdown": novel.ChapterRegexes["markdown"], // Use exported novel.ChapterRegexes
+}
 
 func main() {
 	// --- Configuration Loading ---
@@ -29,17 +41,31 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error loading config: %v", err)
 	}
+	// Ensure Novels map is initialized
+	if cfg.Novels == nil {
+		cfg.Novels = make(map[string]*config.NovelInfo)
+	}
+
+	// --- Load Active Novel ---
+	if cfg.ActiveNovelPath != "" {
+		loadActiveNovel()
+	}
 
 	// --- Command Line Argument Parsing ---
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <command> [arguments]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Manages and reads novels using TTS.\n\n")
 		fmt.Fprintf(os.Stderr, "Commands:\n")
-		fmt.Fprintf(os.Stderr, "  open <filepath>   Open a novel file and parse chapters.\n")
-		fmt.Fprintf(os.Stderr, "  list              List chapters of the currently open novel.\n")
-		fmt.Fprintf(os.Stderr, "  read [index]      Read the chapter at the given index (1-based). Reads last known chapter if index is omitted.\n")
-		fmt.Fprintf(os.Stderr, "  next              Read the next chapter.\n")
-		fmt.Fprintf(os.Stderr, "  prev              Read the previous chapter.\n")
-		fmt.Fprintf(os.Stderr, "  where             Show the last read chapter index.\n")
+		fmt.Fprintf(os.Stderr, "  add <filepath>      Add a new novel to the library and parse chapters.\n")
+		fmt.Fprintf(os.Stderr, "  list                List all novels in the library.\n")
+		fmt.Fprintf(os.Stderr, "  remove <filepath>   Remove a novel from the library.\n")
+		fmt.Fprintf(os.Stderr, "  switch <filepath>   Set the specified novel as the active one.\n")
+		fmt.Fprintf(os.Stderr, "  chapters            List chapters of the active novel.\n")
+		fmt.Fprintf(os.Stderr, "  read [index]        Read chapter of active novel (1-based index). Reads last known chapter if index omitted.\n")
+		fmt.Fprintf(os.Stderr, "  next                Read the next chapter of the active novel.\n")
+		fmt.Fprintf(os.Stderr, "  prev                Read the previous chapter of the active novel.\n")
+		fmt.Fprintf(os.Stderr, "  where               Show the active novel and last read chapter index.\n")
+		// fmt.Fprintf(os.Stderr, "  continue            Continue reading from the last position (same as 'read').\n") // Merged with read
 		fmt.Fprintf(os.Stderr, "\n")
 	}
 
@@ -51,20 +77,22 @@ func main() {
 	}
 
 	command := flag.Arg(0)
-
-	// --- Load current novel if path exists in config ---
-	if cfg.LastNovelPath != "" {
-		loadCurrentNovel() // Load chapters from the path in config
-	}
+	args := flag.Args()[1:]
 
 	// --- Command Handling ---
 	switch command {
-	case "open":
-		handleOpen(flag.Args()[1:])
+	case "add":
+		handleAdd(args)
 	case "list":
-		handleList()
-	case "read":
-		handleRead(flag.Args()[1:])
+		handleListNovels()
+	case "remove":
+		handleRemove(args)
+	case "switch":
+		handleSwitch(args)
+	case "chapters":
+		handleChapters()
+	case "read", "continue": // Allow 'continue' as alias for 'read' without args
+		handleRead(args)
 	case "next":
 		handleNext()
 	case "prev":
@@ -80,69 +108,187 @@ func main() {
 
 // --- Command Handler Functions ---
 
-func handleOpen(args []string) {
+func handleAdd(args []string) {
 	if len(args) < 1 {
-		log.Fatal("Error: open command requires a filepath argument.")
+		log.Fatal("Error: add command requires a filepath argument.")
 	}
-	filePath := args[0]
+	filePath, err := filepath.Abs(args[0]) // Store absolute path
+	if err != nil {
+		log.Fatalf("Error getting absolute path for %s: %v", args[0], err)
+	}
+
+	if _, exists := cfg.Novels[filePath]; exists {
+		log.Printf("Novel '%s' already exists in the library.", filePath)
+		// Optionally switch to it? For now, just inform.
+		return
+	}
+
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		log.Fatalf("Error: File not found: %s", filePath)
 	}
 
-	fmt.Printf("Opening novel: %s\n", filePath)
-	detectedFormat, err := novel.DetectFormat(filePath)
+	fmt.Printf("Adding novel: %s\n", filePath)
+	detectedFormatRegex, err := novel.DetectFormat(filePath)
 	if err != nil {
 		log.Fatalf("Error detecting format: %v", err)
 	}
-	fmt.Printf("Detected format: %p\n", detectedFormat) // Just showing the regex pointer for now
 
-	newChapters, err := novel.ParseNovel(filePath, detectedFormat)
+	// Find the name of the detected regex
+	detectedRegexName := ""
+	for name, r := range regexMap {
+		if r == detectedFormatRegex {
+			detectedRegexName = name
+			break
+		}
+	}
+	if detectedRegexName == "" {
+		log.Println("Warning: Could not map detected regex back to a known name. Using default.")
+		detectedRegexName = "markdown" // Fallback, though DetectFormat should handle this
+		detectedFormatRegex = regexMap[detectedRegexName]
+	}
+	fmt.Printf("Detected format: %s\n", detectedRegexName)
+
+	parsedChapters, err := novel.ParseNovel(filePath, detectedFormatRegex)
 	if err != nil {
 		log.Fatalf("Error parsing novel: %v", err)
 	}
 
-	chapters = newChapters
-	cfg.LastNovelPath = filePath
-	cfg.LastChapterIndex = 0 // Reset index when opening new book
+	chapterTitles := make([]string, len(parsedChapters))
+	for i, ch := range parsedChapters {
+		chapterTitles[i] = ch.Title
+	}
+
+	newNovelInfo := &config.NovelInfo{
+		FilePath:      filePath,
+		Chapters:      parsedChapters, // Keep in memory for now
+		ChapterTitles: chapterTitles,
+		LastReadIndex: 0, // Start at the beginning
+		DetectedRegex: detectedRegexName,
+	}
+
+	cfg.Novels[filePath] = newNovelInfo
+	// Automatically switch to the newly added novel? Yes.
+	cfg.ActiveNovelPath = filePath
+	activeNovel = newNovelInfo // Update active novel in memory
+
 	saveConfig()
-	fmt.Printf("Successfully opened and parsed %d chapters.\n", len(chapters))
-	handleList() // Show chapters after opening
+	fmt.Printf("Successfully added '%s' with %d chapters and set as active.\n", filePath, len(parsedChapters))
 }
 
-func handleList() {
-	if len(chapters) == 0 {
-		fmt.Println("No novel open or no chapters found. Use 'open <filepath>' first.")
+func handleListNovels() {
+	if len(cfg.Novels) == 0 {
+		fmt.Println("Library is empty. Use 'add <filepath>' to add a novel.")
 		return
 	}
-	fmt.Println("Chapters:")
-	for i, ch := range chapters {
-		fmt.Printf("  %d: %s\n", i+1, ch.Title) // 1-based index for user
+	fmt.Println("Novels in library:")
+	i := 1
+	for path, info := range cfg.Novels {
+		activeMarker := " "
+		if path == cfg.ActiveNovelPath {
+			activeMarker = "*"
+		}
+		fmt.Printf(" %s %d: %s (%d chapters, last read: %d)\n",
+			activeMarker, i, filepath.Base(path), len(info.ChapterTitles), info.LastReadIndex+1)
+		i++
+	}
+}
+
+func handleRemove(args []string) {
+	if len(args) < 1 {
+		log.Fatal("Error: remove command requires a filepath argument.")
+	}
+	filePath, err := filepath.Abs(args[0])
+	if err != nil {
+		log.Fatalf("Error getting absolute path for %s: %v", args[0], err)
+	}
+
+	if _, exists := cfg.Novels[filePath]; !exists {
+		log.Fatalf("Error: Novel '%s' not found in the library.", filePath)
+	}
+
+	delete(cfg.Novels, filePath)
+	fmt.Printf("Removed novel: %s\n", filePath)
+
+	// If the removed novel was the active one, clear the active path
+	if cfg.ActiveNovelPath == filePath {
+		cfg.ActiveNovelPath = ""
+		activeNovel = nil
+		fmt.Println("The active novel was removed.")
+		// Optionally, switch to another novel if available? For now, just clear.
+	}
+
+	saveConfig()
+}
+
+func handleSwitch(args []string) {
+	if len(args) < 1 {
+		log.Fatal("Error: switch command requires a filepath argument.")
+	}
+	filePath, err := filepath.Abs(args[0])
+	if err != nil {
+		log.Fatalf("Error getting absolute path for %s: %v", args[0], err)
+	}
+
+	novelInfo, exists := cfg.Novels[filePath]
+	if !exists {
+		log.Fatalf("Error: Novel '%s' not found in the library. Use 'add' first.", filePath)
+	}
+
+	cfg.ActiveNovelPath = filePath
+	activeNovel = novelInfo // Keep pointer to config map entry
+	// Load chapters into memory if not already loaded (or re-load?)
+	loadActiveNovelChapters() // Separate function to load chapters for the active novel
+
+	saveConfig()
+	fmt.Printf("Switched active novel to: %s\n", filePath)
+}
+
+func handleChapters() {
+	if activeNovel == nil {
+		fmt.Println("No active novel selected. Use 'switch <filepath>' first.")
+		return
+	}
+	if len(activeNovel.ChapterTitles) == 0 {
+		fmt.Printf("No chapters found or loaded for '%s'.\n", activeNovel.FilePath)
+		return
+	}
+	fmt.Printf("Chapters for '%s':\n", filepath.Base(activeNovel.FilePath))
+	for i, title := range activeNovel.ChapterTitles {
+		fmt.Printf("  %d: %s\n", i+1, title) // 1-based index for user
 	}
 }
 
 func handleRead(args []string) {
-	if len(chapters) == 0 {
-		fmt.Println("No novel open. Use 'open <filepath>' first.")
+	if activeNovel == nil {
+		fmt.Println("No active novel selected. Use 'switch <filepath>' first.")
 		return
 	}
+	if len(activeNovel.Chapters) == 0 {
+		fmt.Printf("Chapters not loaded for '%s'. Try reloading or re-adding.\n", activeNovel.FilePath)
+		// Attempt to load chapters now
+		loadActiveNovelChapters()
+		if len(activeNovel.Chapters) == 0 {
+			return // Still no chapters
+		}
+	}
 
-	targetIndex := cfg.LastChapterIndex // Default to last read index
+	targetIndex := activeNovel.LastReadIndex // Default to last read index
 
 	if len(args) > 0 {
 		idx, err := strconv.Atoi(args[0])
-		if err != nil || idx < 1 || idx > len(chapters) {
-			log.Fatalf("Error: Invalid chapter index '%s'. Please provide a number between 1 and %d.", args[0], len(chapters))
+		if err != nil || idx < 1 || idx > len(activeNovel.Chapters) {
+			log.Fatalf("Error: Invalid chapter index '%s'. Please provide a number between 1 and %d.", args[0], len(activeNovel.Chapters))
 		}
 		targetIndex = idx - 1 // Convert to 0-based index
 	}
 
-	if targetIndex < 0 || targetIndex >= len(chapters) {
-		fmt.Println("No chapter selected or last read index is invalid. Reading first chapter.")
+	if targetIndex < 0 || targetIndex >= len(activeNovel.Chapters) {
+		fmt.Printf("No chapter selected or last read index (%d) is invalid for '%s'. Reading first chapter.\n", activeNovel.LastReadIndex+1, filepath.Base(activeNovel.FilePath))
 		targetIndex = 0
 	}
 
-	chapter := chapters[targetIndex]
-	fmt.Printf("Reading Chapter %d: %s\n", targetIndex+1, chapter.Title)
+	chapter := activeNovel.Chapters[targetIndex]
+	fmt.Printf("Reading Chapter %d: %s (from %s)\n", targetIndex+1, chapter.Title, filepath.Base(activeNovel.FilePath))
 
 	// Combine title and content for reading
 	textToRead := fmt.Sprintf("%s\n\n%s", chapter.Title, chapter.Content)
@@ -150,21 +296,26 @@ func handleRead(args []string) {
 	err := tts.Speak(textToRead)
 	if err != nil {
 		log.Printf("Error speaking chapter %d: %v", targetIndex+1, err)
-		// Don't update config if speaking fails? Or update anyway? Let's update.
 	}
 
-	// Update and save config only if speaking was attempted (even if it failed)
-	cfg.LastChapterIndex = targetIndex
+	// Update and save config
+	activeNovel.LastReadIndex = targetIndex // Update the in-memory activeNovel
+	// We also need to update the entry in cfg.Novels map if activeNovel is a copy,
+	// but since it's a pointer, modifying activeNovel modifies the map entry.
 	saveConfig()
 }
 
 func handleNext() {
-	if len(chapters) == 0 {
-		fmt.Println("No novel open.")
+	if activeNovel == nil {
+		fmt.Println("No active novel.")
 		return
 	}
-	nextIndex := cfg.LastChapterIndex + 1
-	if nextIndex >= len(chapters) {
+	if len(activeNovel.Chapters) == 0 {
+		fmt.Println("No chapters loaded for the active novel.")
+		return
+	}
+	nextIndex := activeNovel.LastReadIndex + 1
+	if nextIndex >= len(activeNovel.Chapters) {
 		fmt.Println("Already at the last chapter.")
 		return
 	}
@@ -172,11 +323,15 @@ func handleNext() {
 }
 
 func handlePrev() {
-	if len(chapters) == 0 {
-		fmt.Println("No novel open.")
+	if activeNovel == nil {
+		fmt.Println("No active novel.")
 		return
 	}
-	prevIndex := cfg.LastChapterIndex - 1
+	if len(activeNovel.Chapters) == 0 {
+		fmt.Println("No chapters loaded for the active novel.")
+		return
+	}
+	prevIndex := activeNovel.LastReadIndex - 1
 	if prevIndex < 0 {
 		fmt.Println("Already at the first chapter.")
 		return
@@ -185,43 +340,88 @@ func handlePrev() {
 }
 
 func handleWhere() {
-	if cfg.LastNovelPath == "" || len(chapters) == 0 {
-		fmt.Println("No novel is currently open or loaded.")
+	if cfg.ActiveNovelPath == "" || activeNovel == nil {
+		fmt.Println("No novel is currently active.")
 		return
 	}
-	if cfg.LastChapterIndex < 0 || cfg.LastChapterIndex >= len(chapters) {
-		fmt.Printf("Currently open: %s (No specific chapter read yet or index invalid)\n", cfg.LastNovelPath)
+	lastRead := activeNovel.LastReadIndex
+	title := ""
+	if lastRead >= 0 && lastRead < len(activeNovel.ChapterTitles) {
+		title = activeNovel.ChapterTitles[lastRead]
 	} else {
-		fmt.Printf("Currently open: %s\nLast read: Chapter %d: %s\n",
-			cfg.LastNovelPath, cfg.LastChapterIndex+1, chapters[cfg.LastChapterIndex].Title)
+		title = "(index out of bounds or no chapters)"
 	}
+
+	fmt.Printf("Active novel: %s\nLast read: Chapter %d: %s\n",
+		activeNovel.FilePath, lastRead+1, title)
 }
 
 // --- Helper Functions ---
 
-func loadCurrentNovel() {
-	if _, err := os.Stat(cfg.LastNovelPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Warning: Last novel file not found: %s\n", cfg.LastNovelPath)
-		cfg.LastNovelPath = "" // Clear invalid path
-		saveConfig()
+// loadActiveNovel finds the active novel info in the config and sets the global activeNovel pointer.
+// It does NOT load the chapter content by default.
+func loadActiveNovel() {
+	info, exists := cfg.Novels[cfg.ActiveNovelPath]
+	if !exists {
+		fmt.Fprintf(os.Stderr, "Warning: Active novel path '%s' not found in library. Clearing active novel.\n", cfg.ActiveNovelPath)
+		cfg.ActiveNovelPath = ""
+		activeNovel = nil
+		saveConfig() // Save the cleared active path
+		return
+	}
+	activeNovel = info
+	// Optionally pre-load chapters here, or do it lazily in handleRead/handleChapters
+	// loadActiveNovelChapters() // Let's load lazily for now
+}
+
+// loadActiveNovelChapters ensures the chapter content for the active novel is loaded into memory.
+func loadActiveNovelChapters() {
+	if activeNovel == nil || activeNovel.FilePath == "" {
+		log.Println("Error: Cannot load chapters, no active novel set.")
+		return
+	}
+	// Avoid reloading if chapters are already present
+	if len(activeNovel.Chapters) > 0 && len(activeNovel.Chapters) == len(activeNovel.ChapterTitles) {
+		// Assume already loaded if chapter count matches title count
 		return
 	}
 
-	fmt.Printf("Loading novel: %s\n", cfg.LastNovelPath)
-	detectedFormat, err := novel.DetectFormat(cfg.LastNovelPath)
-	if err != nil {
-		log.Printf("Error detecting format for %s: %v", cfg.LastNovelPath, err)
-		// Proceed without chapters, or handle error differently?
+	fmt.Printf("Loading chapters for: %s\n", activeNovel.FilePath)
+	if _, err := os.Stat(activeNovel.FilePath); os.IsNotExist(err) {
+		log.Printf("Error: File for active novel not found: %s", activeNovel.FilePath)
+		// Consider removing it from config or marking as invalid
+		activeNovel.Chapters = nil // Clear any potentially stale data
 		return
 	}
-	chapters, err = novel.ParseNovel(cfg.LastNovelPath, detectedFormat)
+
+	// Get the regex based on the stored name
+	regex, ok := regexMap[activeNovel.DetectedRegex]
+	if !ok {
+		log.Printf("Warning: Unknown regex name '%s' stored for novel. Falling back to markdown.", activeNovel.DetectedRegex)
+		regex = regexMap["markdown"]
+		// Optionally update the stored regex name in config?
+		// activeNovel.DetectedRegex = "markdown"
+		// saveConfig()
+	}
+
+	parsedChapters, err := novel.ParseNovel(activeNovel.FilePath, regex)
 	if err != nil {
-		log.Printf("Error parsing novel %s: %v", cfg.LastNovelPath, err)
-		// Clear chapters if parsing fails
-		chapters = nil
+		log.Printf("Error parsing novel %s: %v", activeNovel.FilePath, err)
+		activeNovel.Chapters = nil // Clear on error
 		return
 	}
-	fmt.Printf("Loaded %d chapters.\n", len(chapters))
+
+	// Update the active novel info in memory (which points to the map entry)
+	activeNovel.Chapters = parsedChapters
+	// Update titles just in case they changed (though ParseNovel doesn't modify titles)
+	activeNovel.ChapterTitles = make([]string, len(parsedChapters))
+	for i, ch := range parsedChapters {
+		activeNovel.ChapterTitles[i] = ch.Title
+	}
+
+	fmt.Printf("Loaded %d chapters.\n", len(activeNovel.Chapters))
+	// No need to call saveConfig() here as we only modified the in-memory struct
+	// The chapter content itself isn't saved to config.json
 }
 
 func saveConfig() {

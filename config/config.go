@@ -4,12 +4,23 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/xqbumu/go-say/novel" // Import novel package
 )
 
-// AppConfig holds the application's configuration.
+// NovelInfo holds metadata and progress for a single novel.
+type NovelInfo struct {
+	FilePath      string          `json:"file_path"`
+	Chapters      []novel.Chapter `json:"-"`              // Chapters loaded in memory, not saved to JSON directly
+	ChapterTitles []string        `json:"chapter_titles"` // Save titles to JSON for listing
+	LastReadIndex int             `json:"last_read_index"`
+	DetectedRegex string          `json:"detected_regex,omitempty"` // Store the name of the detected regex ("chinese", "english", "markdown")
+}
+
+// AppConfig holds the application's configuration for multiple novels.
 type AppConfig struct {
-	LastNovelPath    string `json:"last_novel_path"`
-	LastChapterIndex int    `json:"last_chapter_index"`
+	Novels          map[string]*NovelInfo `json:"novels"` // Map from FilePath to NovelInfo
+	ActiveNovelPath string                `json:"active_novel_path"`
 }
 
 // DefaultConfigPath returns the default path for the configuration file.
@@ -24,13 +35,15 @@ func DefaultConfigPath() (string, error) {
 }
 
 // LoadConfig loads the configuration from the specified path.
-// If the file doesn't exist, it returns a default config.
+// If the file doesn't exist, it returns an initialized config.
 func LoadConfig(configPath string) (*AppConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Return default config if file doesn't exist
-			return &AppConfig{}, nil
+			// Return default initialized config if file doesn't exist
+			return &AppConfig{
+				Novels: make(map[string]*NovelInfo),
+			}, nil
 		}
 		return nil, err
 	}
