@@ -318,10 +318,14 @@ func handleNext() {
 		fmt.Println("No active novel.")
 		return
 	}
-	if len(activeNovel.Chapters) == 0 {
-		fmt.Println("No chapters loaded for the active novel.")
+
+	// Ensure chapters are loaded before checking bounds or proceeding
+	loadActiveNovelChapters()
+	if len(activeNovel.Chapters) == 0 { // Check if loading succeeded
+		fmt.Println("Failed to load chapters for the active novel.")
 		return
 	}
+
 	nextIndex := activeNovel.LastReadIndex + 1
 	if nextIndex >= len(activeNovel.Chapters) {
 		fmt.Println("Already at the last chapter.")
@@ -335,10 +339,14 @@ func handlePrev() {
 		fmt.Println("No active novel.")
 		return
 	}
-	if len(activeNovel.Chapters) == 0 {
-		fmt.Println("No chapters loaded for the active novel.")
+
+	// Ensure chapters are loaded before checking bounds or proceeding
+	loadActiveNovelChapters()
+	if len(activeNovel.Chapters) == 0 { // Check if loading succeeded
+		fmt.Println("Failed to load chapters for the active novel.")
 		return
 	}
+
 	prevIndex := activeNovel.LastReadIndex - 1
 	if prevIndex < 0 {
 		fmt.Println("Already at the first chapter.")
