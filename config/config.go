@@ -21,6 +21,7 @@ type NovelInfo struct {
 type AppConfig struct {
 	Novels          map[string]*NovelInfo `json:"novels"` // Map from FilePath to NovelInfo
 	ActiveNovelPath string                `json:"active_novel_path"`
+	AutoReadNext    bool                  `json:"auto_read_next,omitempty"` // Feature: Auto-read next chapter
 }
 
 // DefaultConfigPath returns the default path for the configuration file.
@@ -41,9 +42,11 @@ func LoadConfig(configPath string) (*AppConfig, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Return default initialized config if file doesn't exist
-			return &AppConfig{
-				Novels: make(map[string]*NovelInfo),
-			}, nil
+			cfg := &AppConfig{
+				Novels:       make(map[string]*NovelInfo),
+				AutoReadNext: false, // Default to false
+			}
+			return cfg, nil
 		}
 		return nil, err
 	}

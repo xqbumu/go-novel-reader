@@ -66,6 +66,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  next                Read the next chapter of the active novel.\n")
 		fmt.Fprintf(os.Stderr, "  prev                Read the previous chapter of the active novel.\n")
 		fmt.Fprintf(os.Stderr, "  where               Show the active novel and last read chapter index.\n")
+		fmt.Fprintf(os.Stderr, "  config [setting]    View or toggle configuration settings.\n")
+		fmt.Fprintf(os.Stderr, "                      Available settings: auto_next\n")
 		// fmt.Fprintf(os.Stderr, "  continue            Continue reading from the last position (same as 'read').\n") // Merged with read
 		fmt.Fprintf(os.Stderr, "\n")
 	}
@@ -100,6 +102,8 @@ func main() {
 		handlePrev()
 	case "where":
 		handleWhere()
+	case "config":
+		handleConfig(args)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		flag.Usage()
@@ -108,6 +112,25 @@ func main() {
 }
 
 // --- Command Handler Functions ---
+
+func handleConfig(args []string) {
+	if len(args) == 0 {
+		// View current settings
+		fmt.Println("Current Configuration:")
+		fmt.Printf("  auto_next: %t\n", cfg.AutoReadNext)
+		return
+	}
+
+	setting := args[0]
+	switch setting {
+	case "auto_next":
+		cfg.AutoReadNext = !cfg.AutoReadNext // Toggle the setting
+		saveConfig()
+		fmt.Printf("Set auto_next to: %t\n", cfg.AutoReadNext)
+	default:
+		log.Fatalf("Error: Unknown config setting '%s'. Available: auto_next", setting)
+	}
+}
 
 func handleAdd(args []string) {
 	if len(args) < 1 {
@@ -301,16 +324,44 @@ func handleRead(args []string) {
 	// Combine title and content for reading
 	textToRead := fmt.Sprintf("%s\n\n%s", chapter.Title, chapter.Content)
 
-	err := tts.Speak(textToRead)
+	// --- Start Speaking Asynchronously ---
+	doneChan, err := tts.SpeakAsync(textToRead)
 	if err != nil {
-		log.Printf("Error speaking chapter %d: %v", targetIndex+1, err)
+		log.Printf("Error starting TTS for chapter %d: %v", targetIndex+1, err)
+		// Don't update progress if TTS couldn't even start
+		return
 	}
 
-	// Update and save config
-	activeNovel.LastReadIndex = targetIndex // Update the in-memory activeNovel
-	// We also need to update the entry in cfg.Novels map if activeNovel is a copy,
-	// but since it's a pointer, modifying activeNovel modifies the map entry.
+	// Update progress *before* waiting for speech to finish,
+	// so 'where' shows the correct chapter *during* reading.
+	activeNovel.LastReadIndex = targetIndex
 	saveConfig()
+
+	// --- Wait for Speaking to Finish ---
+	fmt.Println("Speaking... (Press Ctrl+C to stop the program)") // Basic feedback
+	err = <-doneChan                                              // Block until speaking is done or an error occurs
+
+	if err != nil {
+		log.Printf("Error during TTS for chapter %d: %v", targetIndex+1, err)
+		// Decide if we should still try auto-next on TTS error? Probably not.
+		return
+	}
+
+	// --- Handle Auto-Next ---
+	fmt.Println("Chapter finished.")
+	if cfg.AutoReadNext {
+		fmt.Println("Auto-reading next chapter...")
+		// Need to find the *next* index relative to the one just read
+		nextIdxInternal := targetIndex + 1
+		if nextIdxInternal < len(activeNovel.Chapters) {
+			// Use a goroutine to avoid blocking main flow if handleNext itself speaks
+			// Although handleNext calls handleRead which now uses SpeakAsync...
+			// Let's call it directly for now. If it causes issues, rethink.
+			handleNext() // handleNext calls handleRead with the next index
+		} else {
+			fmt.Println("Reached the end of the novel.")
+		}
+	}
 }
 
 func handleNext() {

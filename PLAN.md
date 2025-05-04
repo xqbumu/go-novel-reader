@@ -7,6 +7,7 @@
 3.  **Multi-Novel Library:** Manage a library of multiple novels.
 4.  **Individual Progress Saving:** Keep track of the last read chapter for each novel in the library.
 5.  **Active Novel:** Maintain the concept of a currently "active" novel for reading commands.
+6.  **Auto-Next Chapter:** Optionally configure the application to automatically read the next chapter upon completion of the current one.
 
 ## Technical Choices
 
@@ -68,9 +69,10 @@ go-say/
         type AppConfig struct {
             Novels          map[string]*NovelInfo `json:"novels"` // Map FilePath -> NovelInfo
             ActiveNovelPath string                `json:"active_novel_path"`
+            AutoReadNext    bool                  `json:"auto_read_next,omitempty"`
         }
         ```
-    *   Save configuration as a JSON file (e.g., `~/.config/go-say/config.json`).
+    *   Save configuration as a JSON file (e.g., `~/.config/go-say/config.json`). Default `AutoReadNext` to false.
     *   Load config on startup. Save config whenever the library or progress changes.
 
 4.  **Main Program Logic (`main.go`):**
@@ -80,18 +82,19 @@ go-say/
         *   `remove <index>`: Remove the novel at the specified index (from `list`) from the library.
         *   `switch <index>`: Set the novel at the specified index (from `list`) as active.
         *   `chapters`: List chapters of the currently active novel.
-        *   `read [chap_index]`: Read a specific chapter (1-based) of the active novel, or continue from the last read position if index is omitted.
+        *   `read [chap_index]`: Read a specific chapter (1-based) of the active novel, or continue from the last read position if index is omitted. If `AutoReadNext` is enabled, automatically proceed to the next chapter upon completion.
         *   `next`/`prev`: Read the next/previous chapter of the active novel.
         *   `where`: Show the active novel and its last read chapter.
-    *   Handle user input, manage the active novel state, load chapters as needed, and orchestrate calls to other modules.
+        *   `config [setting]`: View or toggle configuration settings (currently `auto_next`).
+    *   Handle user input, manage the active novel state, load chapters as needed, and orchestrate calls to other modules. Implement asynchronous TTS handling in `read` to enable auto-next functionality.
 
-## Development Steps (Completed for v2)
+## Development Steps (Completed for v3)
 
 1.  Initialize Go module.
-2.  Implement configuration structures (`AppConfig`, `NovelInfo`) and load/save logic.
+2.  Implement configuration structures (`AppConfig`, `NovelInfo`) and load/save logic, including `AutoReadNext` setting.
 3.  Implement chapter splitter with automatic format detection (`novel/parser.go`).
-4.  Implement TTS interface (`tts/speaker.go`).
-5.  Build CLI interaction logic in `main.go` supporting multi-novel management and individual progress tracking.
+4.  Implement asynchronous TTS interface (`tts/speaker.go` with `SpeakAsync`).
+5.  Build CLI interaction logic in `main.go` supporting multi-novel management, individual progress tracking, `config` command, and auto-next chapter feature.
 6.  Add error handling and user feedback.
 
 ## Information Needed (Resolved)
