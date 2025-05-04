@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort" // Import sort package
 	"strconv"
 
 	// "strings" // Removed as unused
@@ -57,11 +58,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Manages and reads novels using TTS.\n\n")
 		fmt.Fprintf(os.Stderr, "Commands:\n")
 		fmt.Fprintf(os.Stderr, "  add <filepath>      Add a new novel to the library and parse chapters.\n")
-		fmt.Fprintf(os.Stderr, "  list                List all novels in the library.\n")
-		fmt.Fprintf(os.Stderr, "  remove <filepath>   Remove a novel from the library.\n")
-		fmt.Fprintf(os.Stderr, "  switch <filepath>   Set the specified novel as the active one.\n")
+		fmt.Fprintf(os.Stderr, "  list                List all novels in the library with their index.\n")
+		fmt.Fprintf(os.Stderr, "  remove <index>      Remove the novel at the specified index (from 'list') from the library.\n")
+		fmt.Fprintf(os.Stderr, "  switch <index>      Set the novel at the specified index (from 'list') as the active one.\n")
 		fmt.Fprintf(os.Stderr, "  chapters            List chapters of the active novel.\n")
-		fmt.Fprintf(os.Stderr, "  read [index]        Read chapter of active novel (1-based index). Reads last known chapter if index omitted.\n")
+		fmt.Fprintf(os.Stderr, "  read [chap_index]   Read chapter of active novel (1-based index). Reads last known chapter if index omitted.\n")
 		fmt.Fprintf(os.Stderr, "  next                Read the next chapter of the active novel.\n")
 		fmt.Fprintf(os.Stderr, "  prev                Read the previous chapter of the active novel.\n")
 		fmt.Fprintf(os.Stderr, "  where               Show the active novel and last read chapter index.\n")
@@ -181,33 +182,37 @@ func handleListNovels() {
 		return
 	}
 	fmt.Println("Novels in library:")
-	i := 1
-	for path, info := range cfg.Novels {
+	sortedNovels := getNovelsSorted() // Get sorted list
+	for i, novelInfo := range sortedNovels {
 		activeMarker := " "
-		if path == cfg.ActiveNovelPath {
+		if novelInfo.FilePath == cfg.ActiveNovelPath {
 			activeMarker = "*"
 		}
+		// Display 1-based index for the user
 		fmt.Printf(" %s %d: %s (%d chapters, last read: %d)\n",
-			activeMarker, i, filepath.Base(path), len(info.ChapterTitles), info.LastReadIndex+1)
-		i++
+			activeMarker, i+1, filepath.Base(novelInfo.FilePath), len(novelInfo.ChapterTitles), novelInfo.LastReadIndex+1)
 	}
 }
 
 func handleRemove(args []string) {
 	if len(args) < 1 {
-		log.Fatal("Error: remove command requires a filepath argument.")
+		log.Fatal("Error: remove command requires an index argument.")
 	}
-	filePath, err := filepath.Abs(args[0])
+	index, err := strconv.Atoi(args[0])
 	if err != nil {
-		log.Fatalf("Error getting absolute path for %s: %v", args[0], err)
+		log.Fatalf("Error: Invalid index '%s'. Please provide the number shown by 'list'.", args[0])
 	}
 
-	if _, exists := cfg.Novels[filePath]; !exists {
-		log.Fatalf("Error: Novel '%s' not found in the library.", filePath)
+	sortedNovels := getNovelsSorted()
+	if index < 1 || index > len(sortedNovels) {
+		log.Fatalf("Error: Index %d is out of range. Valid range is 1 to %d.", index, len(sortedNovels))
 	}
 
-	delete(cfg.Novels, filePath)
-	fmt.Printf("Removed novel: %s\n", filePath)
+	novelToRemove := sortedNovels[index-1] // Get the NovelInfo using 0-based index
+	filePath := novelToRemove.FilePath
+
+	delete(cfg.Novels, filePath) // Delete from the map using the path
+	fmt.Printf("Removed novel %d: %s\n", index, filepath.Base(filePath))
 
 	// If the removed novel was the active one, clear the active path
 	if cfg.ActiveNovelPath == filePath {
@@ -222,20 +227,23 @@ func handleRemove(args []string) {
 
 func handleSwitch(args []string) {
 	if len(args) < 1 {
-		log.Fatal("Error: switch command requires a filepath argument.")
+		log.Fatal("Error: switch command requires an index argument.")
 	}
-	filePath, err := filepath.Abs(args[0])
+	index, err := strconv.Atoi(args[0])
 	if err != nil {
-		log.Fatalf("Error getting absolute path for %s: %v", args[0], err)
+		log.Fatalf("Error: Invalid index '%s'. Please provide the number shown by 'list'.", args[0])
 	}
 
-	novelInfo, exists := cfg.Novels[filePath]
-	if !exists {
-		log.Fatalf("Error: Novel '%s' not found in the library. Use 'add' first.", filePath)
+	sortedNovels := getNovelsSorted()
+	if index < 1 || index > len(sortedNovels) {
+		log.Fatalf("Error: Index %d is out of range. Valid range is 1 to %d.", index, len(sortedNovels))
 	}
+
+	novelToSwitch := sortedNovels[index-1] // Get the NovelInfo using 0-based index
+	filePath := novelToSwitch.FilePath
 
 	cfg.ActiveNovelPath = filePath
-	activeNovel = novelInfo // Keep pointer to config map entry
+	activeNovel = novelToSwitch // Update global active novel pointer
 	// Load chapters into memory if not already loaded (or re-load?)
 	loadActiveNovelChapters() // Separate function to load chapters for the active novel
 
@@ -357,6 +365,21 @@ func handleWhere() {
 }
 
 // --- Helper Functions ---
+
+// getNovelsSorted returns a slice of NovelInfo pointers sorted alphabetically by FilePath.
+func getNovelsSorted() []*config.NovelInfo {
+	keys := make([]string, 0, len(cfg.Novels))
+	for k := range cfg.Novels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys) // Sort file paths alphabetically
+
+	sorted := make([]*config.NovelInfo, len(keys))
+	for i, k := range keys {
+		sorted[i] = cfg.Novels[k]
+	}
+	return sorted
+}
 
 // loadActiveNovel finds the active novel info in the config and sets the global activeNovel pointer.
 // It does NOT load the chapter content by default.

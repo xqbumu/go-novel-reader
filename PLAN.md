@@ -76,11 +76,11 @@ go-say/
 4.  **Main Program Logic (`main.go`):**
     *   Design the CLI commands:
         *   `add <filepath>`: Add a novel to the library, parse chapters, and set as active.
-        *   `list`: List all novels in the library, marking the active one.
-        *   `remove <filepath>`: Remove a novel from the library.
-        *   `switch <filepath>`: Set a novel from the library as active.
+        *   `list`: List all novels in the library with their index, marking the active one.
+        *   `remove <index>`: Remove the novel at the specified index (from `list`) from the library.
+        *   `switch <index>`: Set the novel at the specified index (from `list`) as active.
         *   `chapters`: List chapters of the currently active novel.
-        *   `read [index]`: Read a specific chapter (1-based) of the active novel, or continue from the last read position if index is omitted.
+        *   `read [chap_index]`: Read a specific chapter (1-based) of the active novel, or continue from the last read position if index is omitted.
         *   `next`/`prev`: Read the next/previous chapter of the active novel.
         *   `where`: Show the active novel and its last read chapter.
     *   Handle user input, manage the active novel state, load chapters as needed, and orchestrate calls to other modules.
