@@ -10,11 +10,12 @@ import (
 
 // NovelInfo holds metadata and progress for a single novel.
 type NovelInfo struct {
-	FilePath      string          `json:"file_path"`
-	Chapters      []novel.Chapter `json:"-"`              // Chapters loaded in memory, not saved to JSON directly
-	ChapterTitles []string        `json:"chapter_titles"` // Save titles to JSON for listing
-	LastReadIndex int             `json:"last_read_index"`
-	DetectedRegex string          `json:"detected_regex,omitempty"` // Store the name of the detected regex ("chinese", "english", "markdown")
+	FilePath             string          `json:"file_path"`
+	Chapters             []novel.Chapter `json:"-"`                        // Chapters loaded in memory, not saved to JSON directly
+	ChapterTitles        []string        `json:"chapter_titles"`           // Save titles to JSON for listing
+	LastReadChapterIndex int             `json:"last_read_chapter_index"`  // Renamed for clarity
+	LastReadSegmentIndex int             `json:"last_read_segment_index"`  // Index of the last successfully read segment within the chapter
+	DetectedRegex        string          `json:"detected_regex,omitempty"` // Store the name of the detected regex ("chinese", "english", "markdown")
 }
 
 // AppConfig holds the application's configuration for multiple novels.

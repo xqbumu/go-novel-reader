@@ -5,7 +5,7 @@
 1.  **Chapter Splitting:** Automatically identify and split chapters in Markdown or TXT novel files using format detection.
 2.  **TTS Reading:** Utilize macOS's built-in `say` command to read selected chapters aloud.
 3.  **Multi-Novel Library:** Manage a library of multiple novels.
-4.  **Individual Progress Saving:** Keep track of the last read chapter for each novel in the library.
+4.  **Individual Progress Saving:** Keep track of the last successfully read **chapter and segment (paragraph)** for each novel in the library.
 5.  **Active Novel:** Maintain the concept of a currently "active" novel for reading commands.
 6.  **Auto-Next Chapter:** Optionally configure the application to automatically read the next chapter upon completion of the current one.
 
@@ -58,11 +58,12 @@ go-say/
         ```go
         // Represents a single novel's metadata and progress
         type NovelInfo struct {
-            FilePath      string          `json:"file_path"`
-            Chapters      []novel.Chapter `json:"-"` // Loaded in memory, not saved
-            ChapterTitles []string        `json:"chapter_titles"` // Saved for listing
-            LastReadIndex int             `json:"last_read_index"`
-            DetectedRegex string          `json:"detected_regex,omitempty"`
+            FilePath             string          `json:"file_path"`
+            Chapters             []novel.Chapter `json:"-"`                        // Loaded in memory, not saved
+            ChapterTitles        []string        `json:"chapter_titles"`           // Saved for listing
+            LastReadChapterIndex int             `json:"last_read_chapter_index"`  // Index of last read chapter
+            LastReadSegmentIndex int             `json:"last_read_segment_index"`  // Index of last read segment within chapter
+            DetectedRegex        string          `json:"detected_regex,omitempty"`
         }
 
         // Main application configuration
@@ -73,28 +74,28 @@ go-say/
         }
         ```
     *   Save configuration as a JSON file (e.g., `~/.config/go-say/config.json`). Default `AutoReadNext` to false.
-    *   Load config on startup. Save config whenever the library or progress changes.
+    *   Load config on startup. Update config in memory as needed. Save config **only once on normal program exit**, and only if changes were made during the session.
 
 4.  **Main Program Logic (`main.go`):**
     *   Design the CLI commands:
         *   `add <filepath>`: Add a novel to the library, parse chapters, and set as active.
-        *   `list`: List all novels in the library with their index, marking the active one.
+        *   `list`: List all novels in the library with their index and last read chapter/segment, marking the active one.
         *   `remove <index>`: Remove the novel at the specified index (from `list`) from the library.
         *   `switch <index>`: Set the novel at the specified index (from `list`) as active.
         *   `chapters`: List chapters of the currently active novel.
-        *   `read [chap_index]`: Read a specific chapter (1-based) of the active novel, or continue from the last read position if index is omitted. If `AutoReadNext` is enabled, automatically proceed to the next chapter upon completion.
-        *   `next`/`prev`: Read the next/previous chapter of the active novel.
-        *   `where`: Show the active novel and its last read chapter.
+        *   `read [chap_index]`: Read a specific chapter (1-based) starting from its first segment, or continue from the last read chapter/segment if index is omitted. Reads segment by segment. If `AutoReadNext` is enabled, automatically proceed to the next segment/chapter upon completion.
+        *   `next`/`prev`: Read the next/previous chapter of the active novel, starting from its first segment.
+        *   `where`: Show the active novel and its last read chapter and segment.
         *   `config [setting]`: View or toggle configuration settings (currently `auto_next`).
-    *   Handle user input, manage the active novel state, load chapters as needed, and orchestrate calls to other modules. Implement asynchronous TTS handling in `read` to enable auto-next functionality.
+    *   Handle user input, manage the active novel state, load chapters as needed, and orchestrate calls to other modules. Implement segment-based reading loop in `read` with asynchronous TTS. Mark configuration as dirty when progress or settings change, but save only once on program exit.
 
-## Development Steps (Completed for v3)
+## Development Steps (Completed for v5)
 
 1.  Initialize Go module.
-2.  Implement configuration structures (`AppConfig`, `NovelInfo`) and load/save logic, including `AutoReadNext` setting.
+2.  Implement configuration structures (`AppConfig`, `NovelInfo`) and load/save logic, including `AutoReadNext` and `LastReadSegmentIndex` settings. Implement deferred saving on exit.
 3.  Implement chapter splitter with automatic format detection (`novel/parser.go`).
 4.  Implement asynchronous TTS interface (`tts/speaker.go` with `SpeakAsync`).
-5.  Build CLI interaction logic in `main.go` supporting multi-novel management, individual progress tracking, `config` command, and auto-next chapter feature.
+5.  Build CLI interaction logic in `main.go` supporting multi-novel management, segment-level progress tracking, `config` command, and auto-next segment/chapter feature, with optimized config saving.
 6.  Add error handling and user feedback.
 
 ## Information Needed (Resolved)
