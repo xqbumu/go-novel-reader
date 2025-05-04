@@ -33,9 +33,17 @@ go-say/
 ## Core Feature Implementation Ideas
 
 1.  **Chapter Splitting (`novel/parser.go`):**
-    *   Read the file content.
-    *   **Crucial Point:** Use regular expressions to match chapter titles. **The specific regex pattern depends on the common chapter title format used in the novels.** Examples: `Chapter X: Title`, `第X章 标题`, `# Chapter Title`, `## Chapter Title`.
-    *   Split the text into a list of chapters based on matches.
+    *   **Automatic Format Detection:**
+        *   Read the first 1MB of the file content.
+        *   Define candidate regular expressions for common formats:
+            *   Chinese: `^\s*第\s*[一二三四五六七八九十百千万零〇\d]+\s*[章卷节回].*$`
+            *   English: `^\s*Chapter\s+\d+.*$`
+            *   Markdown: `^\s*#{1,6}\s+.*$`
+        *   Analyze the initial content line by line, counting matches for each regex.
+        *   Select the regex with the most matches as the detected format for the file. Handle potential ambiguities (e.g., few matches, ties) by defaulting or prompting.
+    *   **Full File Splitting:**
+        *   Using the detected regex, read the entire file again.
+        *   Split the content into chapters, extracting both the title and the body for each chapter.
 
 2.  **TTS Reading (`tts/speaker.go`):**
     *   Accept chapter text as input.
