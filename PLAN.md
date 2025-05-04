@@ -29,9 +29,9 @@ go-say/
 ├── tts/
 │   └── speaker.go    # Interfaces with macOS 'say' command
 └── config/
-    ├── manager.go    # Loads and saves configuration
-    └── config.go     # Defines the configuration struct
+    └── config.go     # Defines config/progress structs, load/save logic
 ```
+(Removed manager.go as load/save logic is now within config.go)
 
 ## Core Feature Implementation Ideas
 
@@ -53,33 +53,34 @@ go-say/
     *   Use `exec.Command("say", chapterText).Run()` to invoke system TTS.
     *   Consider handling potential interruption of reading (e.g., user wants to stop).
 
-3.  **Configuration Management (`config/config.go`):**
-    *   Define structs for configuration:
+3.  **Configuration and Progress Management (`config/config.go`):**
+    *   Define structs:
         ```go
-        // Represents a single novel's metadata and progress
+        // Holds metadata (less frequently changed)
         type NovelInfo struct {
-            FilePath             string          `json:"file_path"`
-            Chapters             []novel.Chapter `json:"-"`                        // Loaded in memory, not saved
-            ChapterTitles        []string        `json:"chapter_titles"`           // Saved for listing
-            LastReadChapterIndex int             `json:"last_read_chapter_index"`  // Index of last read chapter
-            LastReadSegmentIndex int             `json:"last_read_segment_index"`  // Index of last read segment within chapter
-            DetectedRegex        string          `json:"detected_regex,omitempty"`
+            FilePath      string          `json:"file_path"`
+            Chapters      []novel.Chapter `json:"-"`
+            ChapterTitles []string        `json:"chapter_titles"`
+            DetectedRegex string          `json:"detected_regex,omitempty"`
         }
-
-        // Main application configuration
+        // Main application config (less frequently changed)
         type AppConfig struct {
-            Novels          map[string]*NovelInfo `json:"novels"` // Map FilePath -> NovelInfo
+            Novels          map[string]*NovelInfo `json:"novels"`
             ActiveNovelPath string                `json:"active_novel_path"`
             AutoReadNext    bool                  `json:"auto_read_next,omitempty"`
         }
+        // Holds progress data (frequently changed)
+        type ProgressInfo struct {
+            LastReadChapterIndex int `json:"last_read_chapter_index"`
+            LastReadSegmentIndex int `json:"last_read_segment_index"`
+        }
+        // Map FilePath -> ProgressInfo
+        type ProgressData map[string]*ProgressInfo
         ```
-    *   Save configuration as a JSON file (e.g., `~/.config/go-say/config.json`). Default `AutoReadNext` to false.
-    *   Load config on startup. Update config in memory as needed. Save config automatically:
-        *   On normal program exit (if changes were made).
-        *   On receiving an interrupt signal (Ctrl+C) (if changes were made).
-        *   Immediately when switching chapters (`read <index>`, `next`, `prev`).
-        *   Immediately before and after switching novels (`switch <index>`).
-        *   Periodically during continuous reading (every 20 segments, if progress changed).
+    *   Use two separate files:
+        *   `config.json`: Stores `AppConfig` (novel list, active novel path, settings). Saved less frequently (on exit/signal if dirty, on `switch`).
+        *   `progress.json`: Stores `ProgressData` (chapter/segment progress for each novel). Saved more frequently (on exit/signal if dirty, on chapter change, periodically).
+    *   Load both files on startup. Update relevant data structures in memory. Use dirty flags (`configDirty`, `progressDirty`) to track changes.
 
 4.  **Main Program Logic (`main.go`):**
     *   Design the CLI commands:
@@ -92,16 +93,16 @@ go-say/
         *   `next`/`prev`: Read the next/previous chapter of the active novel, starting from its first segment.
         *   `where`: Show the active novel and its last read chapter and segment.
         *   `config [setting]`: View or toggle configuration settings (currently `auto_next`).
-    *   Handle user input, manage the active novel state, load chapters as needed, and orchestrate calls to other modules. Implement segment-based reading loop in `read` with asynchronous TTS. Mark configuration as dirty when progress or settings change. Implement signal handling for graceful shutdown and saving. Implement immediate saving on chapter/novel switches, and periodic saving during continuous reading.
+    *   Handle user input, manage the active novel state, load chapters as needed, and orchestrate calls to other modules. Implement segment-based reading loop in `read` with asynchronous TTS. Update progress in `progressData` and mark `progressDirty`. Update settings/active path in `cfg` and mark `configDirty`. Implement signal handling and deferred exit to save both files if dirty. Implement immediate saving of `progress.json` on chapter change/periodic timer, and `config.json` on novel switch.
 
-## Development Steps (Completed for v7)
+## Development Steps (Completed for v8)
 
 1.  Initialize Go module.
-2.  Implement configuration structures (`AppConfig`, `NovelInfo`) and load/save logic.
+2.  Separate configuration (`AppConfig`, `NovelInfo` in `config.json`) and progress data (`ProgressData`, `ProgressInfo` in `progress.json`). Implement load/save logic for both.
 3.  Implement chapter splitter with automatic format detection (`novel/parser.go`).
 4.  Implement asynchronous TTS interface (`tts/speaker.go` with `SpeakAsync`).
-5.  Build CLI interaction logic in `main.go` supporting multi-novel management, segment-level progress tracking, `config` command, and auto-next feature.
-6.  Implement robust configuration saving: on normal exit, on interrupt signal (Ctrl+C), immediately upon switching chapters or novels, and periodically during continuous reading (every 20 segments).
+5.  Build CLI interaction logic in `main.go` using separate config/progress data, supporting multi-novel management, segment-level progress tracking, `config` command, and auto-next feature.
+6.  Implement robust saving logic for both files based on dirty flags and specific events (exit, signal, chapter change, periodic, novel switch).
 7.  Add error handling and user feedback.
 
 ## Information Needed (Resolved)
