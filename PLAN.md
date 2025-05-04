@@ -79,6 +79,7 @@ go-say/
         *   On receiving an interrupt signal (Ctrl+C) (if changes were made).
         *   Immediately when switching chapters (`read <index>`, `next`, `prev`).
         *   Immediately before and after switching novels (`switch <index>`).
+        *   Periodically during continuous reading (every 20 segments, if progress changed).
 
 4.  **Main Program Logic (`main.go`):**
     *   Design the CLI commands:
@@ -91,16 +92,16 @@ go-say/
         *   `next`/`prev`: Read the next/previous chapter of the active novel, starting from its first segment.
         *   `where`: Show the active novel and its last read chapter and segment.
         *   `config [setting]`: View or toggle configuration settings (currently `auto_next`).
-    *   Handle user input, manage the active novel state, load chapters as needed, and orchestrate calls to other modules. Implement segment-based reading loop in `read` with asynchronous TTS. Mark configuration as dirty when progress or settings change. Implement signal handling for graceful shutdown and saving. Implement immediate saving on chapter/novel switches.
+    *   Handle user input, manage the active novel state, load chapters as needed, and orchestrate calls to other modules. Implement segment-based reading loop in `read` with asynchronous TTS. Mark configuration as dirty when progress or settings change. Implement signal handling for graceful shutdown and saving. Implement immediate saving on chapter/novel switches, and periodic saving during continuous reading.
 
-## Development Steps (Completed for v6)
+## Development Steps (Completed for v7)
 
 1.  Initialize Go module.
 2.  Implement configuration structures (`AppConfig`, `NovelInfo`) and load/save logic.
 3.  Implement chapter splitter with automatic format detection (`novel/parser.go`).
 4.  Implement asynchronous TTS interface (`tts/speaker.go` with `SpeakAsync`).
 5.  Build CLI interaction logic in `main.go` supporting multi-novel management, segment-level progress tracking, `config` command, and auto-next feature.
-6.  Implement robust configuration saving: on normal exit, on interrupt signal (Ctrl+C), and immediately upon switching chapters or novels.
+6.  Implement robust configuration saving: on normal exit, on interrupt signal (Ctrl+C), immediately upon switching chapters or novels, and periodically during continuous reading (every 20 segments).
 7.  Add error handling and user feedback.
 
 ## Information Needed (Resolved)

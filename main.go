@@ -381,6 +381,8 @@ func handleRead(args []string) {
 	chapter := activeNovel.Chapters[targetChapterIndex]
 	fmt.Printf("--- Reading Chapter %d: %s ---\n", targetChapterIndex+1, chapter.Title)
 
+	segmentsReadInSession := 0 // Counter for segments read in this call
+
 	segments := segmentSeparator.Split(chapter.Content, -1)
 	if len(segments) == 0 {
 		fmt.Println("Chapter content appears empty or has no segments.")
@@ -420,7 +422,6 @@ func handleRead(args []string) {
 			activeNovel.LastReadSegmentIndex = segIdx
 			configDirty = true // Mark config as dirty only if progress changed
 		}
-		// saveConfig() // Removed immediate save per segment
 
 		fmt.Println("(Speaking...)")
 		err = <-doneChan // Block until speaking is done or an error occurs
@@ -428,9 +429,18 @@ func handleRead(args []string) {
 		if err != nil {
 			log.Printf("Error during TTS for Ch %d, Seg %d: %v", targetChapterIndex+1, segIdx, err)
 			// Don't exit the whole program, just stop reading this chapter
+			// Don't exit the whole program, just stop reading this chapter
 			return
 		}
 		fmt.Println("(Segment finished)")
+		segmentsReadInSession++ // Increment counter after successful read
+
+		// --- Periodic Save ---
+		if segmentsReadInSession%20 == 0 && configDirty {
+			fmt.Printf("(Auto-saving progress after %d segments...)\n", segmentsReadInSession)
+			saveConfig() // Save progress every 20 segments
+		}
+		// --- End Periodic Save ---
 
 		// If auto-next is disabled, stop after this segment
 		if !cfg.AutoReadNext {
