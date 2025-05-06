@@ -1,0 +1,45 @@
+project_name: go-novel-reader
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - goos:
+      - darwin # 仅构建 macOS 版本
+    goarch:
+      - amd64
+      - arm64
+    binary: go-novel-reader
+    main: ./main.go
+    ldflags:
+      - -s -w -extldflags '-static'
+    flags:
+      - -trimpath
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - README.zh-CN.md
+      # - LICENSE # 如果有 LICENSE 文件，取消注释
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - 'merge conflict'
+
+# release:
+  # GoReleaser 默认会自动发布到 GitHub
+  # draft: false
+  # prerelease: auto
