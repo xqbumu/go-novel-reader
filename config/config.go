@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/xqbumu/go-say/novel" // Import novel package
+	"github.com/xqbumu/go-novel-reader/novel"
 )
 
 // --- Main Configuration ---
@@ -31,7 +31,7 @@ func DefaultConfigPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	appConfigDir := filepath.Join(configDir, "go-say")
+	appConfigDir := filepath.Join(configDir, "go-novel-reader") // Use new name
 	return filepath.Join(appConfigDir, "config.json"), nil
 }
 
@@ -91,7 +91,7 @@ func DefaultProgressPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	appConfigDir := filepath.Join(configDir, "go-say")
+	appConfigDir := filepath.Join(configDir, "go-novel-reader") // Use new name
 	return filepath.Join(appConfigDir, "progress.json"), nil
 }
 
@@ -110,10 +110,8 @@ func LoadProgress(progressPath string) (ProgressData, error) {
 	var progress ProgressData
 	err = json.Unmarshal(data, &progress)
 	if err != nil {
-		// If unmarshalling fails, maybe return an empty map instead of error?
-		// Or log a warning and return empty map. Let's return empty for robustness.
-		// log.Printf("Warning: Could not unmarshal progress file %s: %v. Starting with empty progress.", progressPath, err)
-		return make(ProgressData), nil // Return empty map on error
+		// If unmarshalling fails, return an empty map for robustness.
+		return make(ProgressData), nil
 	}
 	// Ensure map is not nil after loading
 	if progress == nil {

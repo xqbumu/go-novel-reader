@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/signal" // Import signal package
+	"os/signal"
 	"path/filepath"
 	"regexp"
-	"sort" // Import sort package
+	"sort"
 	"strconv"
-	"strings" // Import strings for splitting
-	"syscall" // Import syscall for SIGTERM
+	"strings"
+	"syscall"
 
-	"github.com/xqbumu/go-say/config"
-	"github.com/xqbumu/go-say/novel"
-	"github.com/xqbumu/go-say/tts"
+	"github.com/xqbumu/go-novel-reader/config"
+	"github.com/xqbumu/go-novel-reader/novel"
+	"github.com/xqbumu/go-novel-reader/tts"
 )
 
 var (
@@ -72,7 +72,7 @@ func main() {
 
 	// --- Load Active Novel Metadata ---
 	if cfg.ActiveNovelPath != "" {
-		loadActiveNovelMetadata() // Renamed function
+		loadActiveNovelMetadata()
 	}
 
 	// --- Command Line Argument Parsing ---
@@ -263,7 +263,7 @@ func handleListNovels() {
 		}
 		fmt.Printf(" %s %d: %s (%d chapters, last read: Ch %d, Seg %d)\n",
 			activeMarker, i+1, filepath.Base(novelInfo.FilePath), len(novelInfo.ChapterTitles),
-			progInfo.LastReadChapterIndex+1, progInfo.LastReadSegmentIndex) // Use progressData
+			progInfo.LastReadChapterIndex+1, progInfo.LastReadSegmentIndex)
 	}
 }
 
@@ -334,10 +334,10 @@ func handleSwitch(args []string) {
 		}
 
 		cfg.ActiveNovelPath = filePath
-		activeNovel = novelToSwitch // Update active novel metadata pointer
-		loadActiveNovelChapters()   // Load chapters for the new active novel
-		configDirty = true          // Mark config dirty because ActiveNovelPath changed
-		saveConfig()                // Save immediately to persist the new active path
+		activeNovel = novelToSwitch
+		loadActiveNovelChapters() // Load chapters for the new active novel
+		configDirty = true        // Mark config dirty because ActiveNovelPath changed
+		saveConfig()              // Save immediately to persist the new active path
 		fmt.Printf("Switched active novel to: %s\n", filePath)
 	} else {
 		fmt.Printf("Novel '%s' is already active.\n", filePath)
@@ -401,7 +401,7 @@ func handleRead(args []string) {
 	if chapterChanged {
 		fmt.Printf("Switching to Chapter %d, saving progress...\n", targetChapterIndex+1)
 		currentProgress.LastReadChapterIndex = targetChapterIndex
-		currentProgress.LastReadSegmentIndex = startSegmentIndex // Should be 0
+		currentProgress.LastReadSegmentIndex = startSegmentIndex // Reset segment index
 		progressDirty = true
 		saveProgress() // Save progress immediately
 	}
@@ -596,7 +596,7 @@ func loadActiveNovelMetadata() {
 		return
 	}
 	activeNovel = info
-	// Chapters are loaded lazily by loadActiveNovelChapters
+	// Chapters are loaded lazily by loadActiveNovelChapters when needed
 }
 
 // loadActiveNovelChapters ensures the chapter content for the active novel is loaded into memory.
@@ -629,8 +629,8 @@ func loadActiveNovelChapters() {
 		return
 	}
 
-	activeNovel.Chapters = parsedChapters // Store loaded chapters in the activeNovel struct
-	// Ensure ChapterTitles matches the loaded chapters (though ParseNovel doesn't change titles)
+	activeNovel.Chapters = parsedChapters
+	// Ensure ChapterTitles matches the loaded chapters
 	if len(activeNovel.ChapterTitles) != len(parsedChapters) {
 		log.Printf("Warning: Chapter title count mismatch after loading for %s. Rebuilding titles.", activeNovel.FilePath)
 		activeNovel.ChapterTitles = make([]string, len(parsedChapters))
@@ -650,7 +650,7 @@ func saveConfig() {
 		log.Printf("Error saving config to %s: %v", configPath, err)
 	} else {
 		fmt.Println("Configuration saved.")
-		configDirty = false // Reset dirty flag
+		configDirty = false
 	}
 }
 
@@ -661,6 +661,6 @@ func saveProgress() {
 		log.Printf("Error saving progress to %s: %v", progressPath, err)
 	} else {
 		fmt.Println("Progress saved.")
-		progressDirty = false // Reset dirty flag
+		progressDirty = false
 	}
 }
